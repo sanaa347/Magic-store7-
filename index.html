@@ -1,0 +1,345 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .section { display: none; opacity: 0; transition: opacity 0.5s ease-in-out; }
+        .section.active { display: block; opacity: 1; }
+        .card { transition: transform 0.3s ease; }
+        .card:hover { transform: scale(1.05); }
+        .scanner-overlay {
+            background: linear-gradient(0deg, rgba(0,0,0,0.4), rgba(0,0,0,0.4)),
+                        url('https://via.placeholder.com/400x400?text=QR+Scanner');
+            background-size: cover;
+            background-position: center;
+        }
+        .header {
+            background: linear-gradient(90deg, #1a1a2e, #2a2a44);
+            color: white;
+            position: sticky; top: 0; z-index: 10;
+        }
+        .product-banner {
+            background: url('https://via.placeholder.com/400x200?text=Product+Promo') no-repeat center;
+            background-size: cover;
+            position: relative;
+            overflow: hidden;
+        }
+        .product-banner::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 2%, transparent 10%);
+            background-size: 20px 20px;
+            opacity: 0.5;
+        }
+        .ebarimt-qr { filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
+        .modal.active { display: block; }
+        .cart-badge { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+    </style>
+</head>
+<body class="bg-gradient-to-b from-gray-100 to-gray-200 font-sans">
+    <div class="container mx-auto p-4 max-w-md">
+        <!-- Header -->
+        <div class="header p-3 rounded-t-xl text-center shadow-lg flex justify-between items-center">
+            <h1 class="text-xl font-bold">Hello, User! <span class="text-orange-400">21</span></h1>
+            <div class="relative">
+                <button onclick="showSection('cart')" class="text-white text-2xl">🛒</button>
+                <span id="cart-badge" class="cart-badge" style="display: none;">0</span>
+            </div>
+        </div>
+
+        <!-- Categories -->
+        <div class="flex justify-around mt-4 mb-4">
+            <div class="text-center">
+                <div class="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center mx-auto mb-1">
+                    <span class="text-white">🏪</span>
+                </div>
+                <p class="text-xs">5 Steps Away</p>
+            </div>
+            <div class="text-center">
+                <div class="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center mx-auto mb-1">
+                    <span class="text-white">🍕</span>
+                </div>
+                <p class="text-xs">Snacks</p>
+            </div>
+            <div class="text-center">
+                <div class="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center mx-auto mb-1">
+                    <span class="text-white">⚡</span>
+                </div>
+                <p class="text-xs">Hype Energy</p>
+            </div>
+            <div class="text-center">
+                <div class="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center mx-auto mb-1">
+                    <span class="text-white">🎮</span>
+                </div>
+                <p class="text-xs">Tender System</p>
+            </div>
+        </div>
+
+        <!-- QR Scanner Section -->
+        <div id="scanner" class="section active">
+            <h1 class="text-xl font-bold text-center mb-4 text-purple-800">Scan QR Code</h1>
+            <div class="scanner-overlay h-64 rounded-2xl shadow-lg mb-4"></div>
+            <button onclick="showSection('catalog')"
+                    class="w-full bg-purple-600 text-white py-2 rounded-xl shadow-lg hover:bg-purple-700 transition duration-300">
+                Scan
+            </button>
+        </div>
+
+        <!-- Catalog Section -->
+        <div id="catalog" class="section">
+            <div class="product-banner h-32 rounded-xl mb-4 relative overflow-hidden">
+                <div class="absolute inset-0 flex items-center justify-center text-white text-lg font-bold">20% OFF</div>
+            </div>
+            <h1 class="text-xl font-bold text-center mb-4 text-purple-800">Vending Machine Catalog</h1>
+            <p class="text-center text-gray-600 mb-4">Machine ID: VM-123 (Ulaanbaatar Central)</p>
+            <div class="grid grid-cols-2 gap-4">
+                <div class="card bg-white p-4 rounded-xl shadow-lg relative">
+                    <img src="https://via.placeholder.com/150?text=Mogu+Mogu+Lychee" alt="Mogu Mogu Lychee" class="w-full rounded-lg mb-2">
+                    <h2 class="text-lg font-semibold text-purple-800">Mogu Mogu Lychee</h2>
+                    <p class="text-gray-600">2,500 MNT</p>
+                    <div class="flex space-x-2 mt-2">
+                        <button onclick="showSection('payment')"
+                                class="flex-1 bg-green-500 text-white py-1 rounded-lg shadow hover:bg-green-600 transition duration-300">
+                            Buy Now
+                        </button>
+                        <button onclick="addToBag('Mogu Mogu Lychee', 2500)"
+                                class="flex-1 bg-purple-500 text-white py-1 rounded-lg shadow hover:bg-purple-600 transition duration-300">
+                            Add to Bag
+                        </button>
+                    </div>
+                </div>
+                <div class="card bg-white p-4 rounded-xl shadow-lg relative">
+                    <img src="https://via.placeholder.com/150?text=Mogu+Mogu+Mango" alt="Mogu Mogu Mango" class="w-full rounded-lg mb-2">
+                    <h2 class="text-lg font-semibold text-purple-800">Mogu Mogu Mango</h2>
+                    <p class="text-gray-600">2,500 MNT</p>
+                    <div class="flex space-x-2 mt-2">
+                        <button onclick="showSection('payment')"
+                                class="flex-1 bg-green-500 text-white py-1 rounded-lg shadow hover:bg-green-600 transition duration-300">
+                            Buy Now
+                        </button>
+                        <button onclick="addToBag('Mogu Mogu Mango', 2500)"
+                                class="flex-1 bg-purple-500 text-white py-1 rounded-lg shadow hover:bg-purple-600 transition duration-300">
+                            Add to Bag
+                        </button>
+                    </div>
+                </div>
+                <div class="card bg-white p-4 rounded-xl shadow-lg relative">
+                    <img src="https://via.placeholder.com/150?text=Sparkling+Water" alt="Sparkling Water" class="w-full rounded-lg mb-2">
+                    <h2 class="text-lg font-semibold text-purple-800">Sparkling Water</h2>
+                    <p class="text-gray-600">2,200 MNT</p>
+                    <div class="flex space-x-2 mt-2">
+                        <button onclick="showSection('payment')"
+                                class="flex-1 bg-green-500 text-white py-1 rounded-lg shadow hover:bg-green-600 transition duration-300">
+                            Buy Now
+                        </button>
+                        <button onclick="addToBag('Sparkling Water', 2200)"
+                                class="flex-1 bg-purple-500 text-white py-1 rounded-lg shadow hover:bg-purple-600 transition duration-300">
+                            Add to Bag
+                        </button>
+                    </div>
+                </div>
+                <div class="card bg-white p-4 rounded-xl shadow-lg relative">
+                    <img src="https://via.placeholder.com/150?text=Choco+Pie" alt="Choco Pie" class="w-full rounded-lg mb-2">
+                    <h2 class="text-lg font-semibold text-purple-800">Choco Pie</h2>
+                    <p class="text-gray-600">1,800 MNT</p>
+                    <div class="flex space-x-2 mt-2">
+                        <button onclick="showSection('payment')"
+                                class="flex-1 bg-green-500 text-white py-1 rounded-lg shadow hover:bg-green-600 transition duration-300">
+                            Buy Now
+                        </button>
+                        <button onclick="addToBag('Choco Pie', 1800)"
+                                class="flex-1 bg-purple-500 text-white py-1 rounded-lg shadow hover:bg-purple-600 transition duration-300">
+                            Add to Bag
+                        </button>
+                    </div>
+                </div>
+                <div class="card bg-white p-4 rounded-xl shadow-lg relative">
+                    <img src="https://via.placeholder.com/150?text=Coffee+Can" alt="Coffee Can" class="w-full rounded-lg mb-2">
+                    <h2 class="text-lg font-semibold text-purple-800">Coffee Can</h2>
+                    <p class="text-gray-600">3,000 MNT</p>
+                    <div class="flex space-x-2 mt-2">
+                        <button onclick="showSection('payment')"
+                                class="flex-1 bg-green-500 text-white py-1 rounded-lg shadow hover:bg-green-600 transition duration-300">
+                            Buy Now
+                        </button>
+                        <button onclick="addToBag('Coffee Can', 3000)"
+                                class="flex-1 bg-purple-500 text-white py-1 rounded-lg shadow hover:bg-purple-600 transition duration-300">
+                            Add to Bag
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <button onclick="showSection('scanner')"
+                    class="w-full bg-gray-500 text-white py-2 mt-4 rounded-xl shadow-lg hover:bg-gray-600 transition duration-300">
+                Back
+            </button>
+        </div>
+
+        <!-- Payment Section -->
+        <div id="payment" class="section">
+            <h1 class="text-xl font-bold text-center mb-4 text-purple-800">Choose Payment Method</h1>
+            <div class="grid grid-cols-2 gap-4">
+                <div class="card bg-white p-4 rounded-xl shadow-lg text-center">
+                    <h2 class="text-lg font-semibold text-purple-800">Bank Card</h2>
+                    <button onclick="showSection('receipt')"
+                            class="w-full bg-purple-600 text-white py-1 mt-2 rounded-lg shadow hover:bg-purple-700 transition duration-300">
+                        Pay
+                    </button>
+                </div>
+                <div class="card bg-white p-4 rounded-xl shadow-lg text-center">
+                    <h2 class="text-lg font-semibold text-purple-800">QPay</h2>
+                    <button onclick="showSection('receipt')"
+                            class="w-full bg-purple-600 text-white py-1 mt-2 rounded-lg shadow hover:bg-purple-700 transition duration-300">
+                        Pay
+                    </button>
+                </div>
+                <div class="card bg-white p-4 rounded-xl shadow-lg text-center">
+                    <h2 class="text-lg font-semibold text-purple-800">HiPay</h2>
+                    <button onclick="showSection('receipt')"
+                            class="w-full bg-purple-600 text-white py-1 mt-2 rounded-lg shadow hover:bg-purple-700 transition duration-300">
+                        Pay
+                    </button>
+                </div>
+                <div class="card bg-white p-4 rounded-xl shadow-lg text-center">
+                    <h2 class="text-lg font-semibold text-purple-800">MonPay</h2>
+                    <button onclick="showSection('receipt')"
+                            class="w-full bg-purple-600 text-white py-1 mt-2 rounded-lg shadow hover:bg-purple-700 transition duration-300">
+                        Pay
+                    </button>
+                </div>
+            </div>
+            <button onclick="showSection('catalog')"
+                    class="w-full bg-gray-500 text-white py-2 mt-4 rounded-xl shadow-lg hover:bg-gray-600 transition duration-300">
+                Back
+            </button>
+        </div>
+
+        <!-- Receipt Section -->
+        <div id="receipt" class="section">
+            <h1 class="text-xl font-bold text-center mb-4 text-purple-800">eBarimt Receipt</h1>
+            <div class="bg-white p-4 rounded-xl shadow-lg">
+                <img src="https://via.placeholder.com/300x400?text=eBarimt+Receipt+QR" alt="eBarimt QR" class="w-full rounded-lg mb-2 ebarimt-qr">
+                <p class="text-gray-700">Transaction ID: MN20250512123456</p>
+                <p class="text-gray-700">Item: Mogu Mogu Lychee</p>
+                <p class="text-gray-700">Amount: 2,500 MNT</p>
+                <p class="text-gray-700">Date: 2025-05-12</p>
+                <p class="text-gray-700">Tax ID: 123456789</p>
+                <p class="text-gray-700">eBarimt ID: EB-2025-123456</p>
+            </div>
+            <button onclick="downloadReceipt()"
+                    class="w-full bg-purple-600 text-white py-2 mt-4 rounded-xl shadow-lg hover:bg-purple-700 transition duration-300">
+                Download Receipt
+            </button>
+            <button onclick="showSection('scanner')"
+                    class="w-full bg-gray-500 text-white py-2 mt-2 rounded-xl shadow-lg hover:bg-gray-600 transition duration-300">
+                Back to QR
+            </button>
+        </div>
+
+        <!-- Cart Section -->
+        <div id="cart" class="section">
+            <h1 class="text-xl font-bold text-center mb-4 text-purple-800">Shopping Bag</h1>
+            <ul id="cart-items" class="bg-white p-4 rounded-xl shadow-lg mb-4">
+                <!-- Items will be added here -->
+            </ul>
+            <p id="cart-total" class="text-center text-gray-600 mb-4">Total: 0 MNT</p>
+            <button onclick="showSection('payment')"
+                    class="w-full bg-purple-600 text-white py-2 rounded-xl shadow-lg hover:bg-purple-700 transition duration-300">
+                Checkout
+            </button>
+            <button onclick="showSection('catalog')"
+                    class="w-full bg-gray-500 text-white py-2 mt-2 rounded-xl shadow-lg hover:bg-gray-600 transition duration-300">
+                Continue Shopping
+            </button>
+        </div>
+
+        <!-- Footer -->
+        <div class="flex justify-around mt-4 text-purple-800">
+            <div class="text-center"><span class="text-xl">🏠</span><br>Home</div>
+            <div class="text-center"><span class="text-xl">🔍</span><br>Search</div>
+            <div class="text-center"><span class="text-2xl">⭐</span><br>Rewards</div>
+        </div>
+    </div>
+
+    <script>
+        let bag = [];
+        let total = 0;
+
+        function showSection(sectionId) {
+            document.querySelectorAll('.section').forEach(section => {
+                section.classList.remove('active');
+            });
+            document.getElementById(sectionId).classList.add('active');
+            if (sectionId === 'cart') updateCartDisplay();
+        }
+
+        function addToBag(item, price) {
+            bag.push({ name: item, price: price });
+            total += price;
+            document.getElementById('cart-badge').style.display = 'flex';
+            document.getElementById('cart-badge').textContent = bag.length;
+            alert(item + ' added to bag!');
+        }
+
+        function updateCartDisplay() {
+            const cartItems = document.getElementById('cart-items');
+            const cartTotal = document.getElementById('cart-total');
+            cartItems.innerHTML = '';
+            bag.forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = `${item.name} - ${item.price} MNT`;
+                cartItems.appendChild(li);
+            });
+            cartTotal.textContent = `Total: ${total} MNT`;
+        }
+
+        function downloadReceipt() {
+            alert('Simulating receipt download...');
+        }
+    </script>
+</body>
+</html>
